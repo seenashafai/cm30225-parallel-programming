@@ -11,11 +11,13 @@ typedef struct Data {
   int start_x;
   int start_y;
   int ncells;
+  int precise;
 }Data;
 
 //Function definitions--------
 void print_matrices(float ** a1, float ** a2);
 float ** init_matrix(float ** arr, int conf);
+int getGlobalPrecision();
 Data * getThreadData(int quo, int rem);
 void *relax();
 
@@ -35,7 +37,7 @@ pthread_barrier_t barrier;
 Data *threadDataArray;
 
 //Precision array:
-int parray;
+int *parray;
 
 int main(void) {
 
@@ -46,7 +48,6 @@ int main(void) {
 
   //Init Data Structures:
   threadDataArray = malloc(nthreads * sizeof(Data));
-  parray = malloc(nthreads*(sizeof(int)));
 
   //Get remainder & quotient for coordinate calculations
   int ncompute = (n-2)*(n-2); //Number of computable cells
@@ -68,30 +69,23 @@ int main(void) {
 	}
 
   outsideThreshold = 0;
+  int *pArray = malloc(nthreads*sizeof(int));
 
   //Loop until precision is reached
   while (1) {
     pthread_barrier_wait(&barrier);
-      printf("\nPrecision array contents:\n");
-    for (int c = 0; c < nthreads; c++) {
-      printf("%d", parray[c]);
-      printf("\n");
-      if (!parray[c]) {
-        //Global precision not met
-        //Precision not reached
-        pthread_barrier_wait(&barrier);
-      } else{
-        //Precision reached
-        //Sync threads
-        outsideThreshold = 1;
-        printf("Global precision reached- BREAKING");
-        pthread_barrier_wait(&barrier);
-        break; //exit
-      }
-      printf("whiling");
+    //If precision reached then break
+    if (getGlobalPrecision()) {
+      outsideThreshold = 1;
+      printf("Global precision reached- BREAKING");
+      pthread_barrier_wait(&barrier);
+      break; //exit
     }
+    pthread_barrier_wait(&barrier);
+    }
+  
     //ONLY EXITS IF GLOBAL PRECISION MET
-  }
+  
   //Wait for workers to finish messing around
   for (int i=0; i < nthreads; i++){
 	  pthread_join(threads[i], NULL);
@@ -100,7 +94,6 @@ int main(void) {
   free(a1);
   free(a2);
   free(threadDataArray);
-  free(parray);
   free(threads);
 
   printf("All is done");
@@ -116,22 +109,23 @@ void *relax(void *arg) {
   int sx = t_data->start_x;
   int sy = t_data->start_y;
   int c = t_data->ncells;
+  int p = t_data -> precise;
   int id = t_data->id;
-  int i, j, t, p, count;
+  int i, j, t, pr, count;
 
   float cross;
   while (1) {
-    p = 1;
+    pr = 1;
     j = sx;
     i = sy;
-    printf("\nThread: %d:Starting at [%d,%d] for %d\n", id, i, j, c);
+    printf("\nThread: %d:Starting at [%d,%d] for %d with precision %d\n", id, i, j, c, p);
     for (count = 0; count < c; count++) {
       cross = a1[i][j-1] + a1[i][j+1] + a1[i-1][j] + a1[i+1][j];
       a2[i][j] =  (cross/4);
 
       if (a2[i][j] - a1[i][j] > precision) {
         //Precision not reached for any cell
-        p = 0;
+        pr = 0;
         printf("noo");
       }
 
@@ -144,24 +138,19 @@ void *relax(void *arg) {
       }
     }
 
-    parray[id] = p;
+    t_data -> precise = pr;
     printf("\n");
-    printf("Precision returned:");
-    printf("%d", p);
+    printf("Precision returned: %d at index: %d", t_data -> precise, id);
     printf("\n");
-
-    for (int k = 0; k < nthreads; k++) {
-      printf("\nPrecision Array for ID: %d\n", id);
-      printf("%d",parray[k]);
-    }
+  
 
 
     //Barrier
     pthread_barrier_wait(&barrier);
     pthread_barrier_wait(&barrier);
 
-    if (outsideThreshold) {
-      printf("precision not reached, continuing");
+    if (!outsideThreshold) {
+      printf("Global precision not reached, continuing");
     }
     else {
       //Overall precision has been met lets goooooo
@@ -185,6 +174,16 @@ void *relax(void *arg) {
 
 
 //-------HELPER METHODS --------
+
+int getGlobalPrecision(){
+  Data *d = threadDataArray;
+	for (int i=0; i <n; i++){
+    int p = d -> precise;
+		if (p == 0)
+			return 0;
+		}
+  return 1;
+}
 
 Data *getThreadData(int quo, int rem){
 
@@ -227,6 +226,7 @@ Data *getThreadData(int quo, int rem){
     thread_data.start_y = yn;
     thread_data.start_x = xn;
     thread_data.id = i;
+    thread_data.precise = 0;
     threadDataArray[i] = thread_data;
     //Print coordinates & cell numbers
     printf("%d", xn);
