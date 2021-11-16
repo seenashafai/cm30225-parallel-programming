@@ -24,7 +24,7 @@ void *relax();
 int n = 6;//Square matrix size
 int nthreads = 2;
 float precision = 0.1;
-int globalPrecision;
+int outsideThreshold;
 
 //Init Matrices
 float **a1;
@@ -35,7 +35,7 @@ pthread_barrier_t barrier;
 Data *threadDataArray;
 
 //Precision array:
-int *parray;
+int parray;
 
 int main(void) {
 
@@ -67,24 +67,28 @@ int main(void) {
 	  pthread_create(&threads[i], NULL, relax, &threadDataArray[i]);
 	}
 
-  globalPrecision = 0;
+  outsideThreshold = 0;
 
   //Loop until precision is reached
   while (1) {
     pthread_barrier_wait(&barrier);
+      printf("\nPrecision array contents:\n");
     for (int c = 0; c < nthreads; c++) {
-      if (parray[c] == 0) {
+      printf("%d", parray[c]);
+      printf("\n");
+      if (!parray[c]) {
         //Global precision not met
         //Precision not reached
         pthread_barrier_wait(&barrier);
       } else{
         //Precision reached
         //Sync threads
-        globalPrecision = 1;
-        printf("Global precision reached");
+        outsideThreshold = 1;
+        printf("Global precision reached- BREAKING");
         pthread_barrier_wait(&barrier);
         break; //exit
       }
+      printf("whiling");
     }
     //ONLY EXITS IF GLOBAL PRECISION MET
   }
@@ -126,7 +130,7 @@ void *relax(void *arg) {
       a2[i][j] =  (cross/4);
 
       if (a2[i][j] - a1[i][j] > precision) {
-        //Precision not reached for specific cell
+        //Precision not reached for any cell
         p = 0;
         printf("noo");
       }
@@ -141,14 +145,25 @@ void *relax(void *arg) {
     }
 
     parray[id] = p;
+    printf("\n");
+    printf("Precision returned:");
     printf("%d", p);
+    printf("\n");
+
+    for (int k = 0; k < nthreads; k++) {
+      printf("\nPrecision Array for ID: %d\n", id);
+      printf("%d",parray[k]);
+    }
 
 
     //Barrier
     pthread_barrier_wait(&barrier);
     pthread_barrier_wait(&barrier);
 
-    if (globalPrecision == 1) {
+    if (outsideThreshold) {
+      printf("precision not reached, continuing");
+    }
+    else {
       //Overall precision has been met lets goooooo
       printf("SPAGHETTI MONSTER");
       break;
