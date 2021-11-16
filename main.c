@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <time.h>
 #include <math.h>
 
 //Thread_Data Struct
@@ -15,36 +16,36 @@ typedef struct Data {
 }Data;
 
 //Function definitions--------
-void print_matrices(float ** a1, float ** a2);
-float ** init_matrix(float ** arr, int conf);
+void print_matrices(double ** a1, double ** a2);
+double ** init_matrix(double ** arr, int conf);
 int getGlobalPrecision();
 Data * getThreadData(int quo, int rem);
 void *relax();
 
-//Global variables
+
 //ENV VARS: Maybe struct it
-int n = 6;//Square matrix size
+int n = 100;//Square matrix size
 int nthreads = 2;
-float precision = 0.1;
+float precision = 0.1f;
 int outsideThreshold;
+int iterations;
 
 //Init Matrices
-float **a1;
-float **a2;
+double **a1;
+double **a2;
 pthread_barrier_t barrier;
 
 //Array of thread data structs
 Data *threadDataArray;
 
-//Precision array:
-int *parray;
 
 int main(void) {
 
-  //Create Data-----------
+  //Create Data-----------  
   a1 = init_matrix(a1, 1); //Create populated matrix
   a2 = init_matrix(a2, 0); //Create empty matrix with borders
-  print_matrices(a1, a2);
+
+  clock_t begin = clock();
 
   //Init Data Structures:
   threadDataArray = malloc(nthreads * sizeof(Data));
@@ -64,39 +65,53 @@ int main(void) {
   //Init Barriers-------
   pthread_barrier_init(&barrier, NULL, nthreads+1);
 
+  //TIME: LINEAR
   for (int i=0; i < nthreads; i++){
 	  pthread_create(&threads[i], NULL, relax, &threadDataArray[i]);
 	}
 
   outsideThreshold = 0;
-  int *pArray = malloc(nthreads*sizeof(int));
 
   //Loop until precision is reached
   while (1) {
+    iterations++;
     pthread_barrier_wait(&barrier);
     //If precision reached then break
     if (getGlobalPrecision()) {
       outsideThreshold = 1;
-      printf("Global precision reached- BREAKING");
+      printf("Global precision reached\n");
       pthread_barrier_wait(&barrier);
       break; //exit
     }
+    //print_matrices(a1, a2);
     pthread_barrier_wait(&barrier);
     }
   
     //ONLY EXITS IF GLOBAL PRECISION MET
   
   //Wait for workers to finish messing around
+  //TIME: LINEAR
   for (int i=0; i < nthreads; i++){
 	  pthread_join(threads[i], NULL);
 	}
-  //Free memory
+
+
+  for (int i = 0; i<n; i++) {
+    free(a1[i]);
+    free(a2[i]);
+  } 
   free(a1);
   free(a2);
+
   free(threadDataArray);
   free(threads);
 
-  printf("All is done");
+  printf("\nCompleted in %d iterations\n", iterations);
+
+  clock_t end = clock();
+  double time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
+  printf("Time spent: %f \n", time_spent);
+
   return 0;
 }
 
@@ -109,16 +124,15 @@ void *relax(void *arg) {
   int sx = t_data->start_x;
   int sy = t_data->start_y;
   int c = t_data->ncells;
-  int p = t_data -> precise;
   int id = t_data->id;
-  int i, j, t, pr, count;
+  int i, j, pr, count;
 
-  float cross;
+  double cross;
   while (1) {
     pr = 1;
     j = sx;
     i = sy;
-    printf("\nThread: %d:Starting at [%d,%d] for %d with precision %d\n", id, i, j, c, p);
+    //printf("\nThread: %d:Starting at [%d,%d] for %d \n", id, i, j, c);
     for (count = 0; count < c; count++) {
       cross = a1[i][j-1] + a1[i][j+1] + a1[i-1][j] + a1[i+1][j];
       a2[i][j] =  (cross/4);
@@ -126,7 +140,6 @@ void *relax(void *arg) {
       if (a2[i][j] - a1[i][j] > precision) {
         //Precision not reached for any cell
         pr = 0;
-        printf("noo");
       }
 
       //Prepare for next iteration
@@ -139,36 +152,23 @@ void *relax(void *arg) {
     }
 
     t_data -> precise = pr;
-    printf("\n");
-    printf("Precision returned: %d at index: %d", t_data -> precise, id);
-    printf("\n");
-  
-
 
     //Barrier
     pthread_barrier_wait(&barrier);
     pthread_barrier_wait(&barrier);
 
-    if (!outsideThreshold) {
-      printf("Global precision not reached, continuing");
-    }
-    else {
-      //Overall precision has been met lets goooooo
-      printf("SPAGHETTI MONSTER");
+    if (outsideThreshold == 1) {
       break;
     }
 
     //End of iteration
     //Swap matrices
-    float ** temp = a1;
+    double ** temp = a1;
     a1 = a2;
     a2 = temp;
-
-    print_matrices(a1, a2);
-    printf("LOCHNESS MONSTER\n");
   }
-  pthread_exit(NULL);
   printf("Thread %d: Terminating\n", id);
+  return (NULL);
 }
 
 
@@ -188,7 +188,6 @@ int getGlobalPrecision(){
 Data *getThreadData(int quo, int rem){
 
   int rcount = 0;
-  int ncount;
   int yn;
   int xn;
 
@@ -209,10 +208,10 @@ Data *getThreadData(int quo, int rem){
         yn = yn + quo + 1;
       }
       if (yn % (n-2) == 0){
-        xn = (xn + floor(yn/(n-2))) -1;
+        xn = (int)(xn + floor(yn/(n-2))) -1;
         yn = (n-2);
       } else {
-        xn = xn + floor(yn/(n-2));
+        xn = (int)(xn + floor(yn/(n-2)));
         yn = yn % (n-2);
       }
     }
@@ -241,50 +240,45 @@ Data *getThreadData(int quo, int rem){
 
 
 
-float ** init_matrix(float **arr, int conf){
-
-  //Init array of pointers to pointers
-  int r = n, c = n, i, j, count;
+double ** init_matrix(double **arr, int conf){
 
   //Allocate memory for row pointers
-  arr = malloc(r * sizeof(int *));
-  for (i = 0; i < r; i++) {
+  arr = malloc(n * sizeof(double *));
+  for (int i = 0; i < n; i++) {
     //Allocate memory for column values
-    arr[i] = malloc(c * sizeof(float));
+    arr[i] = malloc(n * sizeof(double));
   }
-  //Start integer count
-  count = 0;
-    //Loop through indices of ** array
-    for (i = 0; i < r-0; i++){
-        for (j = 0; j < c-0; j++){
-            //Assign value as count
-            if (conf) {
-              arr[i][j] = ((double)rand()/(double)RAND_MAX);
-            } else {
-              arr[i][j] = 0;
-            }
-            //Configure border numbers: 
-            //Zero on bottom and right axes
-            if (i == r-1){
-              arr[i][j] = 0;
-            }
-            if (j == c-1){
-              arr[i][j] = 0;
-            }
-            //Ones on left and top axes
-            if (i == 0) {
-              arr[i][j] = 1;
-            }
-            if (j == 0) {
-              arr[i][j] = 1;
-            }
+  //Loop through indices of ** array
+  for (int i = 0; i < n; i++){
+      for (int j = 0; j < n; j++){
+          //Assign value as count
+          if (conf) {
+            arr[i][j] = ((double)rand()/(double)RAND_MAX);
+          } else {
+            arr[i][j] = 0;
           }
-         }
-      return arr;
+          //Configure border numbers: 
+          //Zero on bottom and right axes
+          if (i == n-1){
+            arr[i][j] = 0;
+          }
+          if (j == n-1){
+            arr[i][j] = 0;
+          }
+          //Ones on left and top axes
+          if (i == 0) {
+            arr[i][j] = 1;
+          }
+          if (j == 0) {
+            arr[i][j] = 1;
+          }
+        }
+        }
+    return arr;
   }
 
 //PRINT MATRIX
-void print_matrices(float ** a1, float ** a2) {
+void print_matrices(double ** a1, double ** a2) {
   printf("----------------MATRIX 1----------------");
   printf("|");
   printf("\t");
